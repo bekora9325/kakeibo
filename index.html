@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f7d5b">
+<title>家計簿</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --text: #1f2328; --sub: #6b7280; --line: #e5e7eb;
+    --accent: #2f7d5b; --accent-weak: #e6f2ec; --danger: #c0392b; --plus: #2563eb; --warn: #b7791f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171a; --card: #1f2226; --text: #e8eaed; --sub: #9aa0a6; --line: #33373c;
+      --accent: #4fb386; --accent-weak: #1f3a2d; --danger: #e57368; --plus: #6ea0ff; --warn: #e0b456;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 16px; }
+  .hidden { display: none !important; }
+
+  .topbar { position: sticky; top: 0; z-index: 10; background: var(--card); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px; padding-top: calc(10px + env(safe-area-inset-top)); }
+  .topbar h1 { margin: 0; font-size: 18px; }
+  .sync { font-size: 12px; color: var(--sub); flex: 1; }
+  .sync.warn { color: var(--warn); }
+
+  /* メニュー：スマホは画面下に固定、PCは上部バー内 */
+  .nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; background: var(--card);
+    border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+  .nav button { flex: 1; padding: 14px 0; border: 0; background: none; color: var(--sub); font-size: 14px; }
+  .nav button.active { color: var(--accent); font-weight: 700; }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 16px 16px 90px; }
+
+  .month-bar { display: flex; align-items: center; justify-content: center; gap: 20px; margin-bottom: 14px; }
+  .month-bar button { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); font-size: 20px; }
+  .month-bar span { font-size: 18px; font-weight: 700; min-width: 120px; text-align: center; }
+
+  .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .card, .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  .card { padding: 12px; }
+  .card .label { color: var(--sub); font-size: 13px; }
+  .card .value { font-size: 18px; font-weight: 700; margin-top: 4px; word-break: break-all; }
+  .card.highlight { background: var(--accent-weak); border-color: var(--accent); }
+  .panel { padding: 14px; margin-bottom: 14px; }
+  .panel h2 { margin: 0 0 10px; font-size: 16px; }
+  .panel-grid { display: grid; gap: 14px; }
+  .chart-wrap { position: relative; height: 220px; }
+  .rank { list-style: none; margin: 10px 0 0; padding: 0; }
+  .rank li { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .rank li:last-child { border-bottom: 0; }
+  .muted { color: var(--sub); font-size: 13px; }
+
+  .seg { display: flex; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 3px; margin-bottom: 14px; }
+  .seg button { flex: 1; padding: 10px; border: 0; border-radius: 8px; background: none; color: var(--sub); font-size: 15px; }
+  .seg button.active { background: var(--accent); color: #fff; font-weight: 700; }
+
+  .form label { display: block; font-size: 13px; color: var(--sub); margin: 12px 0 4px; }
+  input, select, textarea { width: 100%; padding: 12px; font-size: 16px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--card); color: var(--text); font-family: inherit; }
+  textarea { min-height: 70px; resize: vertical; }
+  .amount-input { font-size: 26px; font-weight: 700; text-align: right; }
+  .btn { padding: 12px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--card);
+    color: var(--text); font-size: 15px; }
+  .btn.primary { width: 100%; margin-top: 18px; padding: 15px; background: var(--accent); border-color: var(--accent);
+    color: #fff; font-weight: 700; font-size: 17px; }
+  .btn.danger { color: var(--danger); }
+  .btn.small { padding: 8px 12px; font-size: 14px; }
+
+  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  .item { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+  .item-head { display: flex; gap: 10px; align-items: baseline; }
+  .item-head .date { color: var(--sub); font-size: 13px; flex: none; }
+  .item-head .store { flex: 1; font-weight: 600; word-break: break-all; }
+  .item-head .amount { font-weight: 700; flex: none; }
+  .item-head .amount.plus { color: var(--plus); }
+  .item-sub { color: var(--sub); font-size: 12px; margin: 4px 0 8px; }
+  .tag { display: inline-block; padding: 1px 6px; border-radius: 6px; font-size: 11px; background: var(--warn); color: #fff; margin-left: 6px; }
+  .item-edit { display: grid; grid-template-columns: 1fr 110px; gap: 6px; }
+  .item-edit .memo { grid-column: 1 / -1; }
+  .item-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
+  .item-edit input, .item-edit select { padding: 9px; font-size: 15px; }
+
+  .set-row { display: grid; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .set-row.rules { grid-template-columns: 1fr 1fr auto; }
+  .set-row.categories { grid-template-columns: 1fr auto; }
+  .set-row.fixed { grid-template-columns: 1fr 1fr; }
+  .set-row.fixed .full { grid-column: 1 / -1; }
+  .set-row input, .set-row select { padding: 9px; font-size: 15px; }
+  .check { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+  .check input { width: auto; }
+  .hint { color: var(--sub); font-size: 13px; margin: 0 0 8px; }
+
+  #toast { position: fixed; left: 50%; bottom: 80px; transform: translateX(-50%); background: #333; color: #fff;
+    padding: 10px 18px; border-radius: 20px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none;
+    z-index: 30; max-width: 90vw; text-align: center; }
+  #toast.show { opacity: .95; }
+
+  /* PC表示 */
+  @media (min-width: 900px) {
+    .nav { position: static; border: 0; padding: 0; gap: 4px; }
+    .nav button { flex: none; padding: 8px 16px; border-radius: 8px; font-size: 15px; }
+    .nav button.active { background: var(--accent-weak); }
+    main { padding-bottom: 30px; }
+    .summary .card .value { font-size: 26px; }
+    .panel-grid { grid-template-columns: 2fr 1fr; }
+    .chart-wrap { height: 300px; }
+    #view-input { max-width: 520px; margin: 0 auto; }
+    .set-row.fixed { grid-template-columns: 2fr 1fr 1fr 80px 80px 2fr auto; align-items: center; }
+    .set-row.fixed .full { grid-column: auto; }
+    #toast { bottom: 30px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <h1>家計簿</h1>
+  <span class="sync" id="syncStatus"></span>
+  <nav class="nav" id="nav">
+    <button data-view="input">入力</button>
+    <button data-view="home">ホーム</button>
+    <button data-view="detail">明細</button>
+    <button data-view="settings">設定</button>
+  </nav>
+</header>
+
+<main>
+  <div class="month-bar hidden" id="monthBar">
+    <button id="prevMonth" aria-label="前の月">‹</button>
+    <span id="monthLabel"></span>
+    <button id="nextMonth" aria-label="次の月">›</button>
+  </div>
+
+  <!-- 入力 -->
+  <section id="view-input" class="view hidden">
+    <div class="seg" id="formSeg">
+      <button data-form="expense" class="active">支出（現金）</button>
+      <button data-form="income">収入</button>
+    </div>
+
+    <form id="expenseForm" class="form panel" autocomplete="off">
+      <label>金額（円）</label>
+      <input name="amount" class="amount-input" type="text" inputmode="numeric" placeholder="0" required>
+      <label>日付</label>
+      <input name="date" type="date" required>
+      <label>カテゴリ</label>
+      <select name="category" id="expenseCategory"></select>
+      <label>店名（任意）</label>
+      <input name="store" type="text" placeholder="例：マックスバリュ">
+      <label>メモ（何を買ったか）</label>
+      <textarea name="memo" placeholder="例：卵、牛乳、パスタ"></textarea>
+      <button type="submit" class="btn primary">支出を登録</button>
+    </form>
+
+    <form id="incomeForm" class="form panel hidden" autocomplete="off">
+      <label>金額（円）</label>
+      <input name="amount" class="amount-input" type="text" inputmode="numeric" placeholder="0" required>
+      <label>日付</label>
+      <input name="date" type="date" required>
+      <label>種類</label>
+      <select name="type" id="incomeType"></select>
+      <label>メモ</label>
+      <textarea name="memo" placeholder="例：9月分"></textarea>
+      <button type="submit" class="btn primary">収入を登録</button>
+    </form>
+  </section>
+
+  <!-- ホーム -->
+  <section id="view-home" class="view hidden">
+    <div class="summary">
+      <div class="card"><div class="label">収入</div><div class="value" id="sumIncome">-</div></div>
+      <div class="card"><div class="label">支出</div><div class="value" id="sumExpense">-</div></div>
+      <div class="card highlight"><div class="label">残り</div><div class="value" id="sumRemain">-</div></div>
+    </div>
+    <div class="panel-grid">
+      <div class="panel">
+        <h2>カテゴリ別</h2>
+        <div class="chart-wrap"><canvas id="catChart"></canvas></div>
+        <ul class="rank" id="catList"></ul>
+      </div>
+      <div class="panel">
+        <h2>支払手段別</h2>
+        <ul class="rank" id="payList"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 明細 -->
+  <section id="view-detail" class="view hidden">
+    <div class="seg" id="detailSeg">
+      <button data-tab="expense" class="active">支出</button>
+      <button data-tab="income">収入</button>
+    </div>
+    <div class="filters" id="filters">
+      <select id="fPayment"></select>
+      <select id="fCategory"></select>
+    </div>
+    <p class="muted" id="detailTotal"></p>
+    <div id="detailList"></div>
+  </section>
+
+  <!-- 設定 -->
+  <section id="view-settings" class="view hidden">
+    <div class="panel" id="connPanel">
+      <h2>接続設定</h2>
+      <p class="hint">GASのウェブアプリURL（末尾が /exec）と、setup の実行ログに出た合言葉を入力します。この端末にだけ保存されます。</p>
+      <div class="form">
+        <label>ウェブアプリのURL</label>
+        <input id="connUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec">
+        <label>合言葉</label>
+        <input id="connToken" type="password" autocomplete="off">
+      </div>
+      <button class="btn primary" id="saveConn">保存して接続テスト</button>
+    </div>
+
+    <div id="settingsBody">
+      <p class="muted" id="settingsStatus"></p>
+      <div class="panel">
+        <h2>固定費</h2>
+        <p class="hint">カード通知が来ない支払い（スマホ代・電気代など）。毎月この日になると明細に自動で追加されます。</p>
+        <div id="setFixed"></div>
+        <button class="btn small" data-add="fixed">＋ 固定費を追加</button>
+      </div>
+      <div class="panel">
+        <h2>分類ルール</h2>
+        <p class="hint">店名にキーワードが含まれると自動でそのカテゴリになります。上のルールが優先です。</p>
+        <div id="setRules"></div>
+        <button class="btn small" data-add="rules">＋ ルールを追加</button>
+      </div>
+      <div class="panel">
+        <h2>カテゴリ</h2>
+        <div id="setCategories"></div>
+        <button class="btn small" data-add="categories">＋ カテゴリを追加</button>
+      </div>
+      <button class="btn primary" id="saveSettings">設定を保存</button>
+    </div>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+  // ===== 定数 =====
+  const PC_QUERY = '(min-width: 900px)';     // この幅以上をPCとみなす（CSSのPC表示と同じ）
+  const CHART_URL = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+  const KEYS = {
+    conf: 'kb_conf',
+    master: 'kb_master',
+    queue: 'kb_queue',
+    month: ym => 'kb_month_' + ym,
+  };
+  const DEFAULT_MASTER = {
+    categories: ['食費', '外食', 'コンビニ', '日用品', '通販', '車・ガソリン', '通信', 'サブスク', '趣味', 'その他'],
+    incomeTypes: ['バイト代', 'その他'],
+    payments: ['楽天カード', '三井住友カード（NL）', 'Amazonカード', '現金', '固定費'],
+    defaultCategory: '未分類',
+  };
+  const PALETTE = ['#2f7d5b', '#4fb386', '#e0a43a', '#d9663f', '#5b7bd5', '#9b6bd1', '#d35d8f', '#3aa7b8', '#8d8d4a', '#7a8794', '#c48a5a', '#5aa05a'];
+
+  const state = {
+    conf: null,         // { url, token }
+    master: null,       // カテゴリなどの選択肢
+    month: '',          // 表示中の月 yyyy-MM
+    view: '',
+    detailTab: 'expense',
+    chart: null,
+    flushing: false,    // 未送信分を送っている最中か
+    loadingMonth: false,
+    syncError: '',
+  };
+
+  // ===== 保存（この端末のブラウザ内） =====
+
+  /** 端末内の保存領域から読む（使えない環境でも止まらないようにする） */
+  function load(key, fallback) {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+    catch (e) { return fallback; }
+  }
+
+  /** 端末内の保存領域に書く */
+  function save(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* 容量不足などは無視 */ }
+  }
+
+  // ===== 小さな共通関数 =====
+
+  const pad = n => String(n).padStart(2, '0');
+  const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const today = () => ymd(new Date());
+  const thisMonth = () => today().slice(0, 7);
+  const yen = n => '¥' + Number(n || 0).toLocaleString('ja-JP');
+  const newId = prefix => prefix + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2));
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  /** 金額の文字列を正の整数にする（不正なら null） */
+  function toAmount(v) {
+    const n = Math.round(Number(String(v).replace(/[,円\s]/g, '')));
+    return n > 0 ? n : null;
+  }
+
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => t.classList.remove('show'), 2400);
+  }
+
+  function categoryOptions(selected) {
+    const list = [state.master.defaultCategory].concat(state.master.categories);
+    if (selected && !list.includes(selected)) list.push(selected);
+    return list.map(c => `<option${c === selected ? ' selected' : ''}>${esc(c)}</option>`).join('');
+  }
+
+  // ===== GASとの通信 =====
+
+  function hasConf() { return !!(state.conf && state.conf.url && state.conf.token); }
+
+  /** GASのAPIを呼ぶ。失敗したら例外を投げる */
+  async function api(action, payload) {
+    if (!hasConf()) throw new Error('接続設定がありません');
+    const res = await fetch(state.conf.url, {
+      method: 'POST',
+      // text/plain にすると事前確認（プリフライト）が発生せず、GASに直接届く
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ token: state.conf.token, action: action, payload: payload || {} }),
+    });
+    if (!res.ok) throw new Error('通信エラー（' + res.status + '）');
+    let json;
+    try { json = await res.json(); }
+    catch (e) { throw new Error('応答を読めません。URLとデプロイ設定（アクセス：全員）を確認してください'); }
+    if (!json.ok) throw new Error(json.error || 'サーバーエラー');
+    return json.data;
+  }
+
+  // ===== 未送信キュー（先に端末へ保存 → 裏で送る） =====
+
+  function getQueue() { return load(KEYS.queue, []); }
+
+  /** 書き込み操作を未送信キューに積み、画面をすぐ更新してから裏で送る */
+  function enqueue(type, payload) {
+    const queue = getQueue();
+    queue.push({ opId: newId('op_'), type: type, payload: payload });
+    save(KEYS.queue, queue);
+    renderData();
+    flushQueue();
+  }
+
+  /** 未送信の操作をGASへまとめて送る。送れなかった分は残して次の機会に送り直す */
+  async function flushQueue() {
+    if (state.flushing || !hasConf()) { updateSyncStatus(); return; }
+    let queue = getQueue();
+    if (!queue.length) { updateSyncStatus(); return; }
+    state.flushing = true;
+    updateSyncStatus();
+    try {
+      while (queue.length) {
+        const batch = queue.slice(0, 50);
+        const results = await api('sync', { ops: batch });
+        const okIds = new Set(results.filter(r => r.ok).map(r => r.opId));
+        const doneIds = new Set(results.map(r => r.opId));
+        const errors = results.filter(r => !r.ok);
+
+        // 成功した操作は手元の月データにも反映しておく（再取得までの表示のちらつき防止）
+        batch.filter(op => okIds.has(op.opId)).forEach(applyOpToCache);
+
+        save(KEYS.queue, getQueue().filter(op => !doneIds.has(op.opId)));
+        if (errors.length) toast('登録できなかった操作があります：' + errors[0].error);
+        queue = getQueue();
+      }
+      state.syncError = '';
+    } catch (e) {
+      state.syncError = e.message;
+    } finally {
+      state.flushing = false;
+      updateSyncStatus();
+    }
+    if (!state.syncError) refreshMonth(state.month);
+  }
+
+  /** 上部バーに「同期中」「未送信 n件」などを表示 */
+  function updateSyncStatus() {
+    const el = document.getElementById('syncStatus');
+    const n = getQueue().length;
+    let text = '';
+    let warn = false;
+    if (!hasConf()) { text = '接続設定が必要です'; warn = true; }
+    else if (state.flushing) text = '送信中…';
+    else if (n > 0) { text = `未送信 ${n}件` + (state.syncError ? '（' + (navigator.onLine ? 'エラー' : 'オフライン') + '）' : ''); warn = true; }
+    else if (state.loadingMonth) text = '更新中…';
+    else if (state.syncError) { text = navigator.onLine ? '通信エラー' : 'オフライン'; warn = true; }
+    el.textContent = text;
+    el.classList.toggle('warn', warn);
+    el.title = state.syncError || '';
+  }
+
+  // ===== 月データ（端末に保存した前回分＋未送信分を重ねて表示） =====
+
+  function emptyMonth(ym) { return { month: ym, expenses: [], incomes: [] }; }
+
+  /** 1つの操作を月データに当てはめる（追加・更新・削除） */
+  function applyOp(data, op) {
+    const p = op.payload;
+    if (op.type === 'addExpense') {
+      if (p.date.slice(0, 7) === data.month && !data.expenses.some(x => x.id === p.id)) {
+        data.expenses.push({ id: p.id, date: p.date, store: p.store || '（店名なし）', category: p.category,
+          amount: p.amount, method: '', payment: '現金', memo: p.memo || '' });
+      }
+    } else if (op.type === 'updateExpense') {
+      const x = data.expenses.find(e => e.id === p.id);
+      if (x) Object.assign(x, { category: p.category, amount: p.amount, memo: p.memo });
+    } else if (op.type === 'deleteExpense') {
+      data.expenses = data.expenses.filter(e => e.id !== p.id);
+    } else if (op.type === 'addIncome') {
+      if (p.date.slice(0, 7) === data.month && !data.incomes.some(x => x.id === p.id)) {
+        data.incomes.push({ id: p.id, date: p.date, type: p.type, amount: p.amount, memo: p.memo || '' });
+      }
+    } else if (op.type === 'deleteIncome') {
+      data.incomes = data.incomes.filter(e => e.id !== p.id);
+    }
+    return data;
+  }
+
+  /** 送信に成功した操作を、端末に保存してある月データにも反映する */
+  function applyOpToCache(op) {
+    const months = new Set([state.month]);
+    if (op.payload.date) months.add(op.payload.date.slice(0, 7));
+    months.forEach(ym => {
+      const cached = load(KEYS.month(ym), null);
+      if (cached) save(KEYS.month(ym), applyOp(cached, op));
+    });
+  }
+
+  /** 表示用の月データ：保存済みの月データに未送信の操作を重ねたもの */
+  function viewMonth(ym) {
+    const data = JSON.parse(JSON.stringify(load(KEYS.month(ym), emptyMonth(ym))));
+    getQueue().forEach(op => applyOp(data, op));
+    data.expenses.sort((a, b) => b.date.localeCompare(a.date));
+    data.incomes.sort((a, b) => b.date.localeCompare(a.date));
+    return data;
+  }
+
+  /** 合計とカテゴリ別・支払手段別の内訳を計算 */
+  function summarize(data) {
+    const sum = list => list.reduce((s, x) => s + x.amount, 0);
+    const group = key => {
+      const map = {};
+      data.expenses.forEach(x => { const k = x[key] || 'その他'; map[k] = (map[k] || 0) + x.amount; });
+      return Object.keys(map).map(k => ({ name: k, amount: map[k] })).sort((a, b) => b.amount - a.amount);
+    };
+    const income = sum(data.incomes);
+    const expense = sum(data.expenses);
+    return { income: income, expense: expense, remain: income - expense, byCategory: group('category'), byPayment: group('payment') };
+  }
+
+  /** GASから月データを取り直して保存し、表示中の月なら描き直す */
+  async function refreshMonth(ym) {
+    if (!hasConf()) return;
+    state.loadingMonth = true;
+    updateSyncStatus();
+    try {
+      const data = await api('getMonth', { month: ym });
+      save(KEYS.month(ym), data);
+      if (ym === state.month) renderData();
+      state.syncError = '';
+    } catch (e) {
+      state.syncError = e.message;
+    } finally {
+      state.loadingMonth = false;
+      updateSyncStatus();
+    }
+  }
+
+  // ===== 起動 =====
+
+  /** 最初に開く画面：スマホは入力、PCはホーム */
+  function initialView() {
+    return window.matchMedia(PC_QUERY).matches ? 'home' : 'input';
+  }
+
+  /** 端末に保存した内容ですぐ画面を出し、最新データは裏で取りに行く */
+  function init() {
+    state.conf = load(KEYS.conf, null);
+    state.master = load(KEYS.master, DEFAULT_MASTER);
+    state.month = thisMonth();
+
+    setupEvents();
+    fillSelects();
+    resetForm('expenseForm');
+    resetForm('incomeForm');
+    showView(hasConf() ? initialView() : 'settings');
+    renderData();
+    updateSyncStatus();
+
+    if (!hasConf()) { toast('最初に接続設定を入力してください'); return; }
+    syncAll();
+  }
+
+  /** 未送信分を送り、選択肢と今月のデータを最新にする */
+  async function syncAll() {
+    await flushQueue();
+    try {
+      const r = await api('bootstrap', { month: state.month });
+      state.master = r.master;
+      save(KEYS.master, r.master);
+      save(KEYS.month(r.month.month), r.month);
+      fillSelects();
+      renderData();
+      state.syncError = '';
+    } catch (e) {
+      state.syncError = e.message;
+    }
+    updateSyncStatus();
+  }
+
+  /** ボタンやフォームのイベントをまとめて登録 */
+  function setupEvents() {
+    document.getElementById('nav').addEventListener('click', e => {
+      const b = e.target.closest('button[data-view]');
+      if (b) showView(b.dataset.view);
+    });
+    document.getElementById('prevMonth').onclick = () => changeMonth(-1);
+    document.getElementById('nextMonth').onclick = () => changeMonth(1);
+
+    document.getElementById('formSeg').addEventListener('click', e => {
+      const b = e.target.closest('button[data-form]');
+      if (!b) return;
+      setActive('formSeg', b);
+      document.getElementById('expenseForm').classList.toggle('hidden', b.dataset.form !== 'expense');
+      document.getElementById('incomeForm').classList.toggle('hidden', b.dataset.form !== 'income');
+    });
+    document.getElementById('expenseForm').addEventListener('submit', submitExpense);
+    document.getElementById('incomeForm').addEventListener('submit', submitIncome);
+
+    document.getElementById('detailSeg').addEventListener('click', e => {
+      const b = e.target.closest('button[data-tab]');
+      if (!b) return;
+      setActive('detailSeg', b);
+      state.detailTab = b.dataset.tab;
+      renderDetail();
+    });
+    document.getElementById('fPayment').onchange = renderDetail;
+    document.getElementById('fCategory').onchange = renderDetail;
+    document.getElementById('detailList').addEventListener('click', onDetailClick);
+
+    document.getElementById('view-settings').addEventListener('click', e => {
+      const add = e.target.closest('button[data-add]');
+      if (add) addSettingRow(add.dataset.add);
+      const del = e.target.closest('button[data-del-row]');
+      if (del) del.closest('.set-row').remove();
+    });
+    document.getElementById('saveSettings').onclick = saveSettings;
+    document.getElementById('saveConn').onclick = saveConnection;
+
+    // 電波が戻ったとき・アプリに戻ってきたときに未送信分を送り、最新にする
+    window.addEventListener('online', () => flushQueue());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && hasConf()) {
+        if (getQueue().length) flushQueue(); else refreshMonth(state.month);
+      }
+    });
+  }
+
+  function setActive(groupId, btn) {
+    document.querySelectorAll(`#${groupId} button`).forEach(b => b.classList.toggle('active', b === btn));
+  }
+
+  /** カテゴリ・収入種類・絞り込みのセレクトを作る（選んでいた値はそのまま残す） */
+  function fillSelects() {
+    const keep = id => document.getElementById(id).value;
+    const restore = (id, v) => { const el = document.getElementById(id); if (v && [...el.options].some(o => o.value === v)) el.value = v; };
+    const v = { c: keep('expenseCategory'), t: keep('incomeType'), p: keep('fPayment'), f: keep('fCategory') };
+
+    document.getElementById('expenseCategory').innerHTML = categoryOptions(state.master.categories[0]);
+    document.getElementById('incomeType').innerHTML = state.master.incomeTypes.map(t => `<option>${esc(t)}</option>`).join('');
+    document.getElementById('fPayment').innerHTML = '<option value="">すべての支払手段</option>' +
+      state.master.payments.map(p => `<option>${esc(p)}</option>`).join('');
+    document.getElementById('fCategory').innerHTML = '<option value="">すべてのカテゴリ</option>' +
+      [state.master.defaultCategory].concat(state.master.categories).map(c => `<option>${esc(c)}</option>`).join('');
+
+    restore('expenseCategory', v.c); restore('incomeType', v.t); restore('fPayment', v.p); restore('fCategory', v.f);
+  }
+
+  // ===== 画面切り替え・月移動 =====
+
+  /** 画面を切り替える */
+  function showView(view) {
+    state.view = view;
+    document.querySelectorAll('.view').forEach(v => v.classList.toggle('hidden', v.id !== 'view-' + view));
+    document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+    document.getElementById('monthBar').classList.toggle('hidden', !(view === 'home' || view === 'detail'));
+    if (view === 'home') renderHome();
+    if (view === 'settings') openSettings();
+    window.scrollTo(0, 0);
+  }
+
+  /** 表示月を前後に動かす（保存済みの分をすぐ出して、裏で最新を取る） */
+  function changeMonth(delta) {
+    const [y, m] = state.month.split('-').map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    state.month = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+    renderData();
+    refreshMonth(state.month);
+  }
+
+  /** 月の表示・ホーム・明細をまとめて描き直す */
+  function renderData() {
+    const [y, m] = state.month.split('-');
+    document.getElementById('monthLabel').textContent = `${y}年${Number(m)}月`;
+    renderHome();
+    renderDetail();
+    updateSyncStatus();
+  }
+
+  // ===== ホーム =====
+
+  /** 収入・支出・残りとカテゴリ別・支払手段別の内訳を表示 */
+  function renderHome() {
+    const s = summarize(viewMonth(state.month));
+    document.getElementById('sumIncome').textContent = yen(s.income);
+    document.getElementById('sumExpense').textContent = yen(s.expense);
+    const remain = document.getElementById('sumRemain');
+    remain.textContent = yen(s.remain);
+    remain.style.color = s.remain < 0 ? 'var(--danger)' : '';
+
+    document.getElementById('catList').innerHTML = s.byCategory.length
+      ? s.byCategory.map((c, i) => `<li><span><span style="color:${PALETTE[i % PALETTE.length]}">●</span> ${esc(c.name)}</span><span>${yen(c.amount)}</span></li>`).join('')
+      : '<li class="muted">この月の支出はまだありません</li>';
+    document.getElementById('payList').innerHTML = s.byPayment.length
+      ? s.byPayment.map(p => `<li><span>${esc(p.name)}</span><span>${yen(p.amount)}</span></li>`).join('')
+      : '<li class="muted">-</li>';
+
+    if (state.view === 'home') renderChart(s.byCategory);
+  }
+
+  /** グラフ用ライブラリはホームを開いたときに初めて読み込む */
+  function loadChartLib() {
+    if (window.Chart) return Promise.resolve();
+    if (!loadChartLib.promise) {
+      loadChartLib.promise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = CHART_URL;
+        s.onload = resolve;
+        s.onerror = () => { loadChartLib.promise = null; reject(); };
+        document.head.appendChild(s);
+      });
+    }
+    return loadChartLib.promise;
+  }
+
+  /** カテゴリ別のドーナツグラフ */
+  async function renderChart(cats) {
+    try { await loadChartLib(); } catch (e) { return; }
+    if (state.chart) state.chart.destroy();
+    state.chart = new Chart(document.getElementById('catChart'), {
+      type: 'doughnut',
+      data: {
+        labels: cats.map(c => c.name),
+        datasets: [{ data: cats.map(c => c.amount), backgroundColor: cats.map((_, i) => PALETTE[i % PALETTE.length]), borderWidth: 0 }],
+      },
+      options: {
+        maintainAspectRatio: false,
+        cutout: '60%',
+        animation: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.label}：${yen(c.raw)}` } } },
+      },
+    });
+  }
+
+  // ===== 入力 =====
+
+  /** フォームを空にして日付を今日に戻す */
+  function resetForm(id) {
+    const f = document.getElementById(id);
+    const keepCategory = id === 'expenseForm' ? f.category.value : null;
+    f.reset();
+    f.date.value = today();
+    if (keepCategory) f.category.value = keepCategory;
+  }
+
+  /** 現金支出を登録（端末に保存してすぐ完了。送信は裏で行う） */
+  function submitExpense(e) {
+    e.preventDefault();
+    const f = e.target;
+    const amount = toAmount(f.amount.value);
+    if (!amount) { toast('金額を正しく入力してください'); return; }
+    enqueue('addExpense', {
+      id: newId('cash_'), amount: amount, date: f.date.value, category: f.category.value,
+      store: f.store.value.trim(), memo: f.memo.value.trim(),
+    });
+    toast('支出を登録しました');
+    resetForm('expenseForm');
+    f.amount.focus();
+  }
+
+  /** 収入を登録（端末に保存してすぐ完了。送信は裏で行う） */
+  function submitIncome(e) {
+    e.preventDefault();
+    const f = e.target;
+    const amount = toAmount(f.amount.value);
+    if (!amount) { toast('金額を正しく入力してください'); return; }
+    enqueue('addIncome', {
+      id: newId('inc_'), amount: amount, date: f.date.value, type: f.type.value, memo: f.memo.value.trim(),
+    });
+    toast('収入を登録しました');
+    resetForm('incomeForm');
+  }
+
+  // ===== 明細 =====
+
+  /** 支出または収入の一覧を絞り込み条件に合わせて表示 */
+  function renderDetail() {
+    const data = viewMonth(state.month);
+    const pendingIds = new Set(getQueue().map(op => op.payload.id));
+    const list = document.getElementById('detailList');
+    const isExpense = state.detailTab === 'expense';
+    const md = d => d.slice(5).replace('-', '/');
+    const pendingTag = id => pendingIds.has(id) ? '<span class="tag">未送信</span>' : '';
+    document.getElementById('filters').classList.toggle('hidden', !isExpense);
+
+    if (isExpense) {
+      const pay = document.getElementById('fPayment').value;
+      const cat = document.getElementById('fCategory').value;
+      const items = data.expenses.filter(x => (!pay || x.payment === pay) && (!cat || x.category === cat));
+      document.getElementById('detailTotal').textContent = `${items.length} 件　合計 ${yen(items.reduce((s, x) => s + x.amount, 0))}`;
+      list.innerHTML = items.length ? items.map(x => `
+        <div class="item" data-id="${esc(x.id)}">
+          <div class="item-head">
+            <span class="date">${esc(md(x.date))}</span>
+            <span class="store">${esc(x.store)}</span>
+            <span class="amount">${yen(x.amount)}</span>
+          </div>
+          <div class="item-sub">${esc(x.payment)}${x.method ? '・' + esc(x.method) : ''}${pendingTag(x.id)}</div>
+          <div class="item-edit">
+            <select class="e-cat">${categoryOptions(x.category)}</select>
+            <input class="e-amount" type="text" inputmode="numeric" value="${x.amount}">
+            <input class="e-memo memo" type="text" placeholder="メモ" value="${esc(x.memo)}">
+          </div>
+          <div class="item-actions">
+            <button class="btn small danger" data-act="del-expense">削除</button>
+            <button class="btn small" data-act="save-expense">保存</button>
+          </div>
+        </div>`).join('') : '<p class="muted">該当する明細はありません</p>';
+    } else {
+      const items = data.incomes;
+      document.getElementById('detailTotal').textContent = `${items.length} 件　合計 ${yen(items.reduce((s, x) => s + x.amount, 0))}`;
+      list.innerHTML = items.length ? items.map(x => `
+        <div class="item" data-id="${esc(x.id)}">
+          <div class="item-head">
+            <span class="date">${esc(md(x.date))}</span>
+            <span class="store">${esc(x.type)}</span>
+            <span class="amount plus">${yen(x.amount)}</span>
+          </div>
+          <div class="item-sub">${esc(x.memo)}${pendingTag(x.id)}</div>
+          <div class="item-actions"><button class="btn small danger" data-act="del-income">削除</button></div>
+        </div>`).join('') : '<p class="muted">この月の収入はまだありません</p>';
+    }
+  }
+
+  /** 明細の「保存」「削除」ボタンを処理する（どちらも未送信キュー経由） */
+  function onDetailClick(e) {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const item = b.closest('.item');
+    const id = item.dataset.id;
+
+    if (b.dataset.act === 'save-expense') {
+      const amount = toAmount(item.querySelector('.e-amount').value);
+      if (!amount) { toast('金額を正しく入力してください'); return; }
+      enqueue('updateExpense', {
+        id: id, category: item.querySelector('.e-cat').value, amount: amount, memo: item.querySelector('.e-memo').value,
+      });
+      toast('保存しました');
+    }
+    if (b.dataset.act === 'del-expense' && confirm('この明細を削除しますか？')) {
+      enqueue('deleteExpense', { id: id });
+      toast('削除しました');
+    }
+    if (b.dataset.act === 'del-income' && confirm('この収入を削除しますか？')) {
+      enqueue('deleteIncome', { id: id });
+      toast('削除しました');
+    }
+  }
+
+  // ===== 設定 =====
+
+  /** 設定画面を開いたとき：接続設定を表示し、固定費などはGASから読む */
+  async function openSettings() {
+    document.getElementById('connUrl').value = (state.conf && state.conf.url) || '';
+    document.getElementById('connToken').value = (state.conf && state.conf.token) || '';
+    const body = document.getElementById('settingsBody');
+    const status = document.getElementById('settingsStatus');
+    if (!hasConf()) { body.classList.add('hidden'); return; }
+    body.classList.remove('hidden');
+    status.textContent = '読み込み中…';
+    try {
+      const s = await api('getSettings');
+      renderSettings(s);
+      status.textContent = '';
+    } catch (e) {
+      status.textContent = '設定を読み込めませんでした（' + e.message + '）';
+    }
+  }
+
+  /** 接続設定を保存して、つながるか確かめる */
+  async function saveConnection() {
+    const url = document.getElementById('connUrl').value.trim();
+    const token = document.getElementById('connToken').value.trim();
+    if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(url)) { toast('URLは https://script.google.com/…/exec の形で入力してください'); return; }
+    if (!token) { toast('合言葉を入力してください'); return; }
+    state.conf = { url: url, token: token };
+    try {
+      await api('ping');
+    } catch (e) {
+      toast('接続できませんでした：' + e.message);
+      return;
+    }
+    save(KEYS.conf, state.conf);
+    toast('接続できました');
+    updateSyncStatus();
+    await syncAll();
+    openSettings();
+  }
+
+  /** 固定費・分類ルール・カテゴリの編集欄を作る */
+  function renderSettings(s) {
+    document.getElementById('setFixed').innerHTML = s.fixed.map(fixedRowHtml).join('');
+    document.getElementById('setRules').innerHTML = s.rules.map(ruleRowHtml).join('');
+    document.getElementById('setCategories').innerHTML = s.categories.map(categoryRowHtml).join('');
+  }
+
+  function fixedRowHtml(f) {
+    return `<div class="set-row fixed">
+      <input class="full" data-k="name" placeholder="名前（例：スマホ代）" value="${esc(f.name)}">
+      <input data-k="amount" inputmode="numeric" placeholder="金額" value="${f.amount || ''}">
+      <select data-k="category">${categoryOptions(f.category || state.master.categories[0])}</select>
+      <input data-k="day" inputmode="numeric" placeholder="日" value="${f.day || ''}">
+      <label class="check"><input type="checkbox" data-k="active"${f.active ? ' checked' : ''}>有効</label>
+      <input class="full" data-k="memo" placeholder="メモ" value="${esc(f.memo)}">
+      <button class="btn small danger" data-del-row>削除</button>
+    </div>`;
+  }
+
+  function ruleRowHtml(r) {
+    return `<div class="set-row rules">
+      <input data-k="keyword" placeholder="キーワード" value="${esc(r.keyword)}">
+      <select data-k="category">${categoryOptions(r.category)}</select>
+      <button class="btn small danger" data-del-row>削除</button>
+    </div>`;
+  }
+
+  function categoryRowHtml(c) {
+    return `<div class="set-row categories">
+      <input data-k="name" placeholder="カテゴリ名" value="${esc(c)}">
+      <button class="btn small danger" data-del-row>削除</button>
+    </div>`;
+  }
+
+  /** 空の行を1つ足す */
+  function addSettingRow(kind) {
+    const map = {
+      fixed: ['setFixed', fixedRowHtml({ name: '', amount: '', category: '', day: 1, active: true, memo: '' })],
+      rules: ['setRules', ruleRowHtml({ keyword: '', category: state.master.categories[0] })],
+      categories: ['setCategories', categoryRowHtml('')],
+    };
+    document.getElementById(map[kind][0]).insertAdjacentHTML('beforeend', map[kind][1]);
+  }
+
+  /** 画面の入力内容を集めてGASに保存し、選択肢も更新する（ここは通信が必要） */
+  async function saveSettings() {
+    const read = containerId => [...document.querySelectorAll(`#${containerId} .set-row`)].map(row => {
+      const o = {};
+      row.querySelectorAll('[data-k]').forEach(el => { o[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value; });
+      return o;
+    });
+    const fixed = read('setFixed');
+    if (fixed.some(f => f.name.trim() && !toAmount(f.amount))) { toast('固定費の金額を正しく入力してください'); return; }
+    const payload = { fixed: fixed, rules: read('setRules'), categories: read('setCategories').map(c => c.name) };
+    try {
+      const s = await api('saveSettings', payload);
+      state.master = Object.assign({}, state.master, { categories: s.categories });
+      save(KEYS.master, state.master);
+      fillSelects();
+      renderSettings(s);
+      toast('設定を保存しました');
+    } catch (e) {
+      toast('保存できませんでした：' + e.message);
+    }
+  }
+
+  // ===== 起動処理 =====
+
+  // 画面ファイルを端末に保存しておき、次回から一瞬で開けるようにする
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+  init();
+</script>
+</body>
+</html>
